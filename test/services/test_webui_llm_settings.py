@@ -143,6 +143,41 @@ def test_infistar_settings_defaults_and_custom_configuration():
         assert not app.exception
 
 
+def test_claude_director_settings_are_available_without_changing_provider():
+    app_config = dict(
+        config.app,
+        llm_provider="moonshot",
+        moonshot_api_key="moonshot-key",
+        anthropic_api_key="",
+        anthropic_model_name="",
+    )
+    with (
+        patch.object(config, "app", app_config),
+        patch.object(config, "ui", dict(config.ui, language="en")),
+        patch.object(config, "try_save_config", return_value=True),
+    ):
+        app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=60)
+        app.session_state["ui_language"] = "en"
+        app.session_state["settings_dialog_open"] = True
+        app.session_state["settings_dialog_target_tab"] = "llm"
+        app.run()
+        assert not app.exception
+
+        assert _widget_by_key(
+            app.text_input, "claude_director_model_name_input"
+        ).value == "claude-sonnet-5"
+        _widget_by_key(app.text_input, "claude_director_api_key_input").set_value(
+            "claude-director-key"
+        ).run()
+        _widget_by_key(app.text_input, "claude_director_model_name_input").set_value(
+            "claude-director-model"
+        ).run()
+
+        assert app_config["llm_provider"] == "moonshot"
+        assert app_config["anthropic_api_key"] == "claude-director-key"
+        assert app_config["anthropic_model_name"] == "claude-director-model"
+
+
 def test_kimi_platform_selection_keeps_endpoint_configuration_consistent():
     """Kimi 平台切换必须同步 Base URL，并只允许自定义模式编辑地址。"""
     app_config = dict(

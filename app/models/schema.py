@@ -226,6 +226,12 @@ class VideoScriptParams:
     custom_system_prompt: str = Field(default="", max_length=8000)
 
 
+class VideoDirectorPlanParams(VideoScriptParams):
+    video_subject: str = Field(min_length=1, max_length=500)
+    video_language: Optional[str] = Field(default="", max_length=64)
+    match_materials_to_script: bool = False
+
+
 class VideoTermsParams:
     """
     {
@@ -273,6 +279,10 @@ class TaskQueryRequest(BaseModel):
 
 
 class VideoScriptRequest(VideoScriptParams, BaseModel):
+    pass
+
+
+class VideoDirectorPlanRequest(VideoDirectorPlanParams, BaseModel):
     pass
 
 
@@ -330,6 +340,12 @@ class TaskListData(BaseModel):
 
 class VideoScriptData(BaseModel):
     video_script: str
+
+
+class VideoDirectorPlanData(BaseModel):
+    director_note: str
+    video_script: str
+    video_terms: List[str]
 
 
 class VideoTermsData(BaseModel):
@@ -473,6 +489,36 @@ class VideoScriptResponse(BaseResponse):
                 "message": "success",
                 "data": {
                     "video_script": "春天的花海，是大自然的一幅美丽画卷。在这个季节里，大地复苏，万物生长，花朵争相绽放，形成了一片五彩斑斓的花海..."
+                },
+            },
+        }
+    )
+
+
+class VideoDirectorPlanResponse(BaseResponse):
+    data: VideoDirectorPlanData
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": 200,
+                "message": "success",
+                "data": {
+                    "director_note": (
+                        "A calm, cinematic progression from wide ocean views to close "
+                        "details of marine life."
+                    ),
+                    "video_script": (
+                        "The ocean covers most of our planet, yet much of it remains "
+                        "unexplored."
+                    ),
+                    "video_terms": [
+                        "open ocean",
+                        "coral reef",
+                        "sea turtle",
+                        "ocean research",
+                        "underwater light",
+                    ],
                 },
             },
         }

@@ -4,6 +4,8 @@ from app.controllers import base
 from app.controllers.v1.base import new_router
 from app.models.exception import HttpException
 from app.models.schema import (
+    VideoDirectorPlanRequest,
+    VideoDirectorPlanResponse,
     VideoScriptRequest,
     VideoScriptResponse,
     VideoSocialMetadataRequest,
@@ -17,6 +19,32 @@ from app.utils import utils
 # LLM 接口与视频接口共用同一鉴权规则，避免新增端点时遗漏保护。
 # api_key 为空时 verify_token 直接放行，不改变默认本地使用体验。
 router = new_router(dependencies=[Depends(base.verify_token)])
+
+
+@router.post(
+    "/director-plan",
+    response_model=VideoDirectorPlanResponse,
+    summary="Generate a Claude director plan for the video",
+)
+def generate_video_director_plan(request: Request, body: VideoDirectorPlanRequest):
+    try:
+        plan = llm.generate_director_plan(
+            video_subject=body.video_subject,
+            language=body.video_language,
+            paragraph_number=body.paragraph_number,
+            video_script_prompt=body.video_script_prompt,
+            custom_system_prompt=body.custom_system_prompt,
+            match_script_order=body.match_materials_to_script,
+        )
+    except ValueError as error:
+        raise HttpException(
+            task_id=base.get_task_id(request),
+            status_code=503,
+            message=(
+                f"Claude director plan generation failed: {str(error)[:500]}"
+            ),
+        ) from error
+    return utils.get_response(200, plan)
 
 
 @router.post(

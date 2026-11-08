@@ -88,6 +88,89 @@ class TestScriptPromptOptions(unittest.TestCase):
         with self.assertRaises(ValueError):
             llm._normalize_text_response("hidden reasoning\n</THINK>\n", "ollama")
 
+    def test_generate_director_plan_uses_anthropic_without_changing_default_provider(
+        self,
+    ):
+        response = """```json
+        {"director_note":"Cinematic and calm",
+         "video_script":"Ocean covers most of Earth.",
+         "video_terms":["open ocean","coral reef","sea turtle","ocean research",
+                        "underwater light","ocean waves","diver underwater","blue sea"]}
+        ```"""
+        app_config = {
+            "llm_provider": "moonshot",
+            "anthropic_api_key": "director-test-key",
+            "anthropic_model_name": "claude-test-model",
+        }
+        captured = {}
+
+        def fake_generate_response(prompt, app_config):
+            captured["prompt"] = prompt
+            captured["app_config"] = app_config
+            return response
+
+        with patch.object(
+            llm, "_generate_response", side_effect=fake_generate_response
+        ):
+            plan = llm.generate_director_plan(
+                video_subject="Ocean",
+                language="en",
+                paragraph_number=2,
+                match_script_order=True,
+                app_config=app_config,
+            )
+
+        self.assertEqual(
+            plan,
+            {
+                "director_note": "Cinematic and calm",
+                "video_script": "Ocean covers most of Earth.",
+                "video_terms": [
+                    "open ocean",
+                    "coral reef",
+                    "sea turtle",
+                    "ocean research",
+                    "underwater light",
+                    "ocean waves",
+                    "diver underwater",
+                    "blue sea",
+                ],
+            },
+        )
+        self.assertIn("exactly 2", captured["prompt"])
+        self.assertIn("exactly 8", captured["prompt"])
+        self.assertEqual(captured["app_config"]["llm_provider"], "anthropic")
+        self.assertEqual(
+            captured["app_config"]["anthropic_api_key"], "director-test-key"
+        )
+        self.assertEqual(
+            captured["app_config"]["anthropic_model_name"], "claude-test-model"
+        )
+        self.assertEqual(app_config["llm_provider"], "moonshot")
+
+    def test_generate_director_plan_reports_provider_and_json_errors(self):
+        with patch.object(
+            llm,
+            "_generate_response",
+            return_value="Error: anthropic: api_key is not set",
+        ):
+            with self.assertRaisesRegex(ValueError, "not configured"):
+                llm.generate_director_plan("Ocean")
+
+        with patch.object(llm, "_generate_response", return_value="not json"):
+            with self.assertRaisesRegex(ValueError, "not valid JSON"):
+                llm.generate_director_plan("Ocean")
+
+    def test_generate_director_plan_rejects_too_few_search_terms(self):
+        response = (
+            '{"director_note":"Cinematic",'
+            '"video_script":"Ocean covers most of Earth.",'
+            '"video_terms":["open ocean"]}'
+        )
+        with patch.object(llm, "_generate_response", return_value=response):
+            with self.assertRaisesRegex(ValueError, "expected 5"):
+                llm.generate_director_plan("Ocean")
+
     def test_build_script_prompt_appends_advanced_requirements(self):
         """
         高级文案要求只作为附加约束，不替换默认系统提示词。

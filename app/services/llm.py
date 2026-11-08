@@ -1148,6 +1148,116 @@ Please note that you must use English for generating video search terms; Chinese
     return search_terms
 
 
+def generate_director_plan(
+    video_subject: str,
+    language: str = "",
+    paragraph_number: int = 1,
+    video_script_prompt: str = "",
+    custom_system_prompt: str = "",
+    match_script_order: bool = False,
+    app_config=None,
+) -> dict[str, str | list[str]]:
+    """Generate a Claude plan in the script and search-term formats MPT uses."""
+    subject = _limit_script_text(video_subject, 500, "video_subject")
+    if not subject:
+        raise ValueError("video_subject is required")
+
+    paragraph_number = _normalize_script_paragraph_number(paragraph_number)
+    video_script_prompt = _limit_script_text(
+        video_script_prompt, MAX_SCRIPT_PROMPT_LENGTH, "video_script_prompt"
+    )
+    custom_system_prompt = _limit_script_text(
+        custom_system_prompt, MAX_SCRIPT_SYSTEM_PROMPT_LENGTH, "custom_system_prompt"
+    )
+    term_count = 8 if match_script_order else 5
+    ordering_instruction = (
+        "Keep the visual search terms in the same chronological order as the script."
+        if match_script_order
+        else "Choose visual search terms that cover the video subject."
+    )
+    prompt = f"""
+You are a video director planning a short video for MoneyPrinterTurbo.
+Return only one JSON object with exactly these string/list fields:
+- "director_note": a concise visual direction, including tone and overall look.
+- "video_script": narration in the requested language, with exactly {paragraph_number}
+  paragraphs separated by a blank line. Do not include headings or stage directions.
+- "video_terms": an array of exactly {term_count} concise English stock-video search
+  phrases (1-3 words each), focused on concrete visual subjects and scenes.
+
+The video_terms will be sent directly to stock video search, not to an image model.
+{ordering_instruction}
+Use the language of the video subject for director_note and narration.
+Do not add markdown fences or any text outside the JSON object.
+
+Video subject: {subject}
+Language: {language or "same as the video subject"}
+Paragraph count: {paragraph_number}
+""".strip()
+    if custom_system_prompt:
+        prompt += f"\n\nAdditional writing requirements:\n{custom_system_prompt}"
+    if video_script_prompt:
+        prompt += f"\n\nAdditional user requirements:\n{video_script_prompt}"
+
+    # Director plans always use Claude but do not change the app's selected default
+    # provider. The API key and model live in the existing Anthropic settings.
+    claude_config = dict(config.app if app_config is None else app_config)
+    claude_config["llm_provider"] = "anthropic"
+    response = _generate_response(prompt, app_config=claude_config)
+    if not response or response.startswith("Error: "):
+        error = (
+            response.removeprefix("Error: ").strip()
+            if response
+            else "empty response"
+        )
+        if "anthropic: api_key is not set" in error.lower():
+            error = (
+                "Anthropic API key is not configured; set it in Settings > "
+                "LLM Settings > Claude Director Plan Settings"
+            )
+        logger.error(f"failed to generate Claude director plan: {error}")
+        raise ValueError(f"Claude director plan generation failed: {error}")
+
+    try:
+        plan = json.loads(_strip_code_fence(response))
+    except json.JSONDecodeError:
+        try:
+            plan = _extract_embedded_json(response, "{")
+        except ValueError as error:
+            logger.warning("Claude director plan response did not contain valid JSON")
+            raise ValueError(
+                "Claude director plan response was not valid JSON"
+            ) from error
+
+    if not isinstance(plan, dict):
+        raise ValueError("Claude director plan response must be a JSON object")
+    director_note = plan.get("director_note")
+    video_script = plan.get("video_script")
+    video_terms = plan.get("video_terms")
+    if not isinstance(director_note, str) or not director_note.strip():
+        raise ValueError("Claude director plan is missing director_note")
+    if not isinstance(video_script, str) or not video_script.strip():
+        raise ValueError("Claude director plan is missing video_script")
+    if not isinstance(video_terms, list) or not all(
+        isinstance(term, str) for term in video_terms
+    ):
+        raise ValueError("Claude director plan video_terms must be a list of strings")
+
+    normalized_terms = [term.strip() for term in video_terms if term.strip()]
+    if not normalized_terms:
+        raise ValueError("Claude director plan returned no video search terms")
+    if len(normalized_terms) < term_count:
+        raise ValueError(
+            "Claude director plan returned "
+            f"{len(normalized_terms)} video search terms; expected {term_count}"
+        )
+
+    return {
+        "director_note": director_note.strip(),
+        "video_script": video_script.strip(),
+        "video_terms": normalized_terms[:term_count],
+    }
+
+
 # =============================================================================
 # Social publishing metadata
 #
