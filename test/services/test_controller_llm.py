@@ -4,7 +4,9 @@ from unittest.mock import patch
 from pydantic import ValidationError
 
 from app.controllers.v1 import llm as llm_controller
+from app.models.exception import HttpException
 from app.models.schema import (
+    VideoDirectorPlanRequest,
     VideoScriptRequest,
     VideoSocialMetadataRequest,
     VideoTermsRequest,
@@ -12,6 +14,53 @@ from app.models.schema import (
 
 
 class TestLlmController(unittest.TestCase):
+    def test_generate_director_plan_forwards_video_workflow_options(self):
+        body = VideoDirectorPlanRequest(
+            video_subject="Ocean",
+            video_language="en",
+            paragraph_number=2,
+            video_script_prompt="Keep it accessible",
+            custom_system_prompt="Use a cinematic voice",
+            match_materials_to_script=True,
+        )
+        plan = {
+            "director_note": "Cinematic",
+            "video_script": "Ocean narration",
+            "video_terms": ["open ocean"],
+        }
+
+        with patch.object(
+            llm_controller.llm, "generate_director_plan", return_value=plan
+        ) as generate:
+            response = llm_controller.generate_video_director_plan(None, body)
+
+        self.assertEqual(response, {"status": 200, "data": plan})
+        generate.assert_called_once_with(
+            video_subject="Ocean",
+            language="en",
+            paragraph_number=2,
+            video_script_prompt="Keep it accessible",
+            custom_system_prompt="Use a cinematic voice",
+            match_script_order=True,
+        )
+
+    def test_generate_director_plan_translates_missing_configuration_to_503(self):
+        body = VideoDirectorPlanRequest(video_subject="Ocean")
+        with (
+            patch.object(
+                llm_controller.llm,
+                "generate_director_plan",
+                side_effect=ValueError("anthropic: api_key is not set"),
+            ),
+            patch.object(
+                llm_controller.base, "get_task_id", return_value="task"
+            ),
+        ):
+            with self.assertRaises(HttpException) as raised:
+                llm_controller.generate_video_director_plan(None, body)
+
+        self.assertEqual(raised.exception.status_code, 503)
+
     def test_terms_request_bounds_generated_term_count(self):
         """Ordered term prompts must not allocate arbitrary-length examples."""
         self.assertEqual(

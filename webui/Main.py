@@ -4827,6 +4827,52 @@ def _render_settings_dialog():
                         ),
                     )
 
+                if llm_provider != "anthropic":
+                    claude_provider = get_llm_provider("anthropic")
+                    if claude_provider is None:
+                        raise RuntimeError("Anthropic provider is not registered")
+                    with llm_form_panel.container(border=True):
+                        st.markdown(f"**{tr('Claude Director Plan Settings')}**")
+                        st.caption(tr("Claude Director Plan Settings Help"))
+                        claude_api_key = st.text_input(
+                            tr("API Key"),
+                            value=app_settings.get("anthropic_api_key", ""),
+                            type="password",
+                            key="claude_director_api_key_input",
+                            on_change=_save_settings_change,
+                            args=(
+                                "app",
+                                "anthropic_api_key",
+                                "claude_director_api_key_input",
+                                lambda value: value,
+                            ),
+                        )
+                        claude_model_name = st.text_input(
+                            tr("Model Name"),
+                            value=claude_provider.resolve_model_name(
+                                app_settings.get("anthropic_model_name", "")
+                            ),
+                            key="claude_director_model_name_input",
+                            on_change=_save_settings_change,
+                            args=(
+                                "app",
+                                "anthropic_model_name",
+                                "claude_director_model_name_input",
+                                lambda value: normalize_provider_override(
+                                    value, claude_provider.default_model
+                                ),
+                            ),
+                        )
+                        _set_runtime_config("app", "anthropic_api_key", claude_api_key)
+                        _set_runtime_config(
+                            "app",
+                            "anthropic_model_name",
+                            normalize_provider_override(
+                                claude_model_name,
+                                claude_provider.default_model,
+                            ),
+                        )
+
                 if llm_provider == "openai_codex" and middle_config_panel.open:
                     from webui.codex_login import render_codex_login
 
@@ -5526,6 +5572,58 @@ def _render_local_script_generation(params):
                 st.error(tr("Video Keywords Generation Failed"))
 
 
+def _render_claude_director_plan(params):
+    """Generate an opt-in Claude plan and populate existing script/term inputs."""
+    if st.button(
+        tr("Generate Claude Director Plan"),
+        key="claude_director_plan_button",
+        use_container_width=True,
+        type="secondary",
+        icon=":material/movie_edit:",
+    ):
+        if not params.video_subject:
+            st.toast(tr("Please Enter the Video Subject First"))
+            st.warning(tr("Please Enter the Video Subject First"))
+        else:
+            try:
+                with st.spinner(tr("Generating Claude Director Plan")):
+                    plan = _run_llm_read_operation(
+                        "generate_claude_director_plan",
+                        lambda app_config_snapshot: llm.generate_director_plan(
+                            video_subject=params.video_subject,
+                            language=params.video_language,
+                            paragraph_number=params.paragraph_number,
+                            video_script_prompt=params.video_script_prompt,
+                            custom_system_prompt=params.custom_system_prompt,
+                            match_script_order=params.match_materials_to_script,
+                            app_config=app_config_snapshot,
+                        ),
+                    )
+                st.session_state["video_script"] = plan["video_script"]
+                st.session_state["video_terms"] = ", ".join(plan["video_terms"])
+                st.session_state["claude_director_note"] = plan["director_note"]
+                st.session_state["claude_director_script"] = plan["video_script"]
+                st.session_state["claude_director_subject"] = params.video_subject
+                st.session_state["loomloom_video_scene_autofill_digest"] = (
+                    hashlib.sha256(
+                        plan["video_script"].strip().encode("utf-8")
+                    ).hexdigest()
+                )
+            except ValueError as error:
+                st.error(
+                    tr("Claude Director Plan Failed").format(error=str(error))
+                )
+
+    director_note = st.session_state.get("claude_director_note", "")
+    if (
+        director_note
+        and st.session_state.get("claude_director_subject") == params.video_subject
+        and st.session_state.get("claude_director_script")
+        == st.session_state.get("video_script")
+    ):
+        st.info(f"**{tr('Claude Director Plan')}**\n\n{director_note}")
+
+
 def _render_loomloom_candidates():
     candidates = tuple(st.session_state.get("loomloom_script_candidates") or ())
     errors = tuple(st.session_state.get("loomloom_candidate_errors") or ())
@@ -5981,6 +6079,7 @@ def _render_script_settings(panel, params):
                 _render_loomloom_script_generation(params)
             else:
                 _render_local_script_generation(params)
+            _render_claude_director_plan(params)
             params.video_script = st.text_area(
                 tr("Video Script"),
                 help=tr("Video Script Help"),

@@ -138,3 +138,31 @@ def test_generated_script_that_quotes_an_error_message_is_applied():
         _widget_by_key(app.text_area, "video_terms").value
         == "python code, programmer laptop"
     )
+
+
+def test_claude_director_plan_populates_existing_video_inputs():
+    response = (
+        '{"director_note":"Cinematic progression",'
+        '"video_script":"Coffee begins as a carefully grown bean.",'
+        '"video_terms":["coffee beans","coffee farm","coffee harvest",'
+        '"coffee roasting","coffee brewing"]}'
+    )
+    app = _click_ai_button(
+        "claude_director_plan_button",
+        lambda prompt, **kwargs: response,
+        {"video_subject": "Coffee"},
+    )
+
+    assert [str(item.value) for item in app.error] == []
+    assert (
+        _widget_by_key(app.text_area, "video_script").value
+        == "Coffee begins as a carefully grown bean."
+    )
+    assert (
+        _widget_by_key(app.text_area, "video_terms").value
+        == (
+            "coffee beans, coffee farm, coffee harvest, coffee roasting, "
+            "coffee brewing"
+        )
+    )
+    assert any("Cinematic progression" in str(item.value) for item in app.info)

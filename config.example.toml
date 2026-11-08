@@ -405,7 +405,9 @@ openai_api_key = ""
 openai_base_url = ""
 openai_model_name = ""
 
-# Anthropic Claude, called through the OpenAI-compatible endpoint.
+# Anthropic Claude, called through the OpenAI-compatible endpoint. The optional
+# Claude Director Plan action uses these credentials/model without changing the
+# selected default LLM provider.
 # API key: https://platform.claude.com/settings/keys
 anthropic_api_key = ""
 anthropic_base_url = ""
